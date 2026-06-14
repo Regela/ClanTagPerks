@@ -63,8 +63,12 @@ public final class ClanTagPerks {
 
         logger.info("[ClanTagPerks] enabled, poll={}s, mode={}, source={}",
                 config.pollIntervalSeconds, config.mode, config.linkSource);
-        pollTask.announce("ClanTagPerks enabled — poll=" + config.pollIntervalSeconds
-                + "s, mode=" + config.mode + ", source=" + config.linkSource);
+        if (config.notifyOnStartup) {
+            pollTask.announce(config.msgStartup
+                    .replace("{poll}", String.valueOf(config.pollIntervalSeconds))
+                    .replace("{mode}", config.mode)
+                    .replace("{source}", config.linkSource));
+        }
     }
 
     /** (Re)loads config and (re)builds the polling pipeline. Safe to call at runtime. */

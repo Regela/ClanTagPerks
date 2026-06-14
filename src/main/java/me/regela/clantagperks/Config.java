@@ -28,6 +28,15 @@ public final class Config {
     public final String linkQuery;
     public final int cacheRefreshSeconds;
 
+    // notifications (Discord log-channel posts)
+    public final boolean notifyEnabled;
+    public final boolean notifyOnStartup;
+    public final boolean notifyOnEarn;
+    public final boolean notifyOnLost;
+    public final String msgStartup;
+    public final String msgEarned;
+    public final String msgLost;
+
     // logging
     public final boolean debug;
 
@@ -35,7 +44,9 @@ public final class Config {
            String logChannelId, int requestTimeoutSeconds, String group, String mode,
            int tempTtlSeconds, int renewBeforeSeconds, String linkSource,
            Map<String, String> manualMap, String jdbcUrl, String dbUsername, String dbPassword,
-           String linkQuery, int cacheRefreshSeconds, boolean debug) {
+           String linkQuery, int cacheRefreshSeconds,
+           boolean notifyEnabled, boolean notifyOnStartup, boolean notifyOnEarn, boolean notifyOnLost,
+           String msgStartup, String msgEarned, String msgLost, boolean debug) {
         this.botToken = botToken;
         this.memberGuildId = memberGuildId;
         this.tagGuildId = tagGuildId;
@@ -54,6 +65,13 @@ public final class Config {
         this.dbPassword = dbPassword;
         this.linkQuery = linkQuery;
         this.cacheRefreshSeconds = cacheRefreshSeconds;
+        this.notifyEnabled = notifyEnabled;
+        this.notifyOnStartup = notifyOnStartup;
+        this.notifyOnEarn = notifyOnEarn;
+        this.notifyOnLost = notifyOnLost;
+        this.msgStartup = msgStartup;
+        this.msgEarned = msgEarned;
+        this.msgLost = msgLost;
         this.debug = debug;
     }
 }

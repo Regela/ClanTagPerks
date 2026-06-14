@@ -7,7 +7,7 @@ discord:
   tag-guild-id: "523059903812599811"      # test = HYTL tag; prod = your own server id
   poll-interval-seconds: 120              # how often to poll Discord
   api-base: "https://discord.com/api/v10"
-  log-channel-id: "1515767193210458114"   # optional status logs in #general; "" = off
+  log-channel-id: "1515767193210458114"   # channel for status posts (see notifications: section)
   request-timeout-seconds: 15
 
 luckperms:
@@ -31,6 +31,18 @@ link:
     # (offline UUIDs are case-sensitive). Must return two columns: (nickname, discord_id).
     query: "SELECT a.NICKNAME, s.DISCORD_ID FROM SOCIAL s JOIN AUTH a ON s.LOWERCASENICKNAME = a.LOWERCASENICKNAME WHERE s.DISCORD_ID IS NOT NULL"
     cache-refresh-seconds: 1800 # refresh link cache every 30 min, NOT every poll
+
+notifications:
+  # Master switch for posting to discord.log-channel-id. Off by default — usually not needed in prod.
+  enabled: false
+  on-startup: true              # post once when the plugin enables/reloads
+  on-earn: true                 # post when a player gains the perk (not on renewals)
+  on-lost: true                 # post when a player loses the perk
+  # Message templates. Placeholders: {group} {players} (earned/lost); {poll} {mode} {source} (startup).
+  messages:
+    startup: "ClanTagPerks enabled — poll={poll}s, mode={mode}, source={source}"
+    earned: "✅ earned `{group}`: {players}"
+    lost: "➖ lost `{group}`: {players}"
 
 logging:
   debug: false

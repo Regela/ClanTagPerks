@@ -39,6 +39,8 @@ public final class ConfigLoader {
         Map<String, Object> link = section(root, "link");
         Map<String, Object> manual = section(link, "manual");
         Map<String, Object> limbo = section(link, "limboauth");
+        Map<String, Object> notify = section(root, "notifications");
+        Map<String, Object> notifyMsgs = section(notify, "messages");
         Map<String, Object> logging = section(root, "logging");
 
         Map<String, String> manualMap = new LinkedHashMap<>();
@@ -65,6 +67,13 @@ public final class ConfigLoader {
                 str(limbo, "password", ""),
                 str(limbo, "query", ""),
                 intv(limbo, "cache-refresh-seconds", 1800),
+                bool(notify, "enabled", false),
+                bool(notify, "on-startup", true),
+                bool(notify, "on-earn", true),
+                bool(notify, "on-lost", true),
+                str(notifyMsgs, "startup", "ClanTagPerks enabled — poll={poll}s, mode={mode}, source={source}"),
+                str(notifyMsgs, "earned", "✅ earned `{group}`: {players}"),
+                str(notifyMsgs, "lost", "➖ lost `{group}`: {players}"),
                 bool(logging, "debug", false));
 
         validate(cfg);

@@ -74,10 +74,26 @@ group. Removing the `SOCIAL` row drops the link (verified: `1 links` ↔ `0 link
 
 ## Notifications & safety
 
-- If `discord.log-channel-id` is set, the plugin posts a line to that channel on startup and on each
-  perk transition (`✅ earned` / `➖ lost`) — renewals are silent.
-- On startup/reload the plugin warns if the configured `luckperms.group` doesn't exist (otherwise the
-  granted node would resolve to nothing on the backend).
+Optional Discord channel posts, configured under `notifications:` (posts go to
+`discord.log-channel-id`). **Disabled by default** — usually not needed in production.
+
+```yaml
+notifications:
+  enabled: false        # master switch
+  on-startup: true      # post once on enable/reload
+  on-earn: true         # post when a player gains the perk (renewals are silent)
+  on-lost: true         # post when a player loses the perk
+  messages:             # templates; placeholders below
+    startup: "ClanTagPerks enabled — poll={poll}s, mode={mode}, source={source}"
+    earned: "✅ earned `{group}`: {players}"
+    lost: "➖ lost `{group}`: {players}"
+```
+
+Placeholders: `{group}`, `{players}` (earned/lost); `{poll}`, `{mode}`, `{source}` (startup).
+Transitions are always written to the server log regardless of these settings.
+
+On startup/reload the plugin also warns if the configured `luckperms.group` doesn't exist (otherwise
+the granted node would resolve to nothing on the backend).
 
 ## Verified end-to-end (test rig on this host)
 

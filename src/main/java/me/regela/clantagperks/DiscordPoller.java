@@ -182,6 +182,7 @@ public final class DiscordPoller {
 
     /** Optional: post a status line to the configured log channel. Best-effort, never throws. */
     public void postStatus(String message) {
+        if (!cfg.notifyEnabled) return;
         if (cfg.logChannelId == null || cfg.logChannelId.isBlank()) return;
         try {
             String json = "{\"content\":\"" + message.replace("\\", "\\\\").replace("\"", "\\\"") + "\"}";

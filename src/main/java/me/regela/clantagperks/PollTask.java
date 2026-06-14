@@ -93,16 +93,22 @@ public final class PollTask implements Runnable {
         }
     }
 
-    /** Posts perk changes to the configured Discord log channel (no-op if unset). */
+    /** Logs perk changes and (if enabled) posts them to the Discord log channel using templates. */
     private void notifyTransitions(java.util.List<String> earned, java.util.List<String> lost) {
-        StringBuilder sb = new StringBuilder();
-        if (!earned.isEmpty()) sb.append("✅ earned `").append(cfg.group).append("`: ").append(String.join(", ", earned));
-        if (!lost.isEmpty()) {
-            if (sb.length() > 0) sb.append("  ");
-            sb.append("➖ lost `").append(cfg.group).append("`: ").append(String.join(", ", lost));
+        if (!earned.isEmpty()) {
+            String msg = cfg.msgEarned
+                    .replace("{group}", cfg.group)
+                    .replace("{players}", String.join(", ", earned));
+            log.info("[ClanTagPerks] {}", msg);
+            if (cfg.notifyOnEarn) poller.postStatus(msg);
         }
-        log.info("[ClanTagPerks] {}", sb);
-        poller.postStatus(sb.toString());
+        if (!lost.isEmpty()) {
+            String msg = cfg.msgLost
+                    .replace("{group}", cfg.group)
+                    .replace("{players}", String.join(", ", lost));
+            log.info("[ClanTagPerks] {}", msg);
+            if (cfg.notifyOnLost) poller.postStatus(msg);
+        }
     }
 
     /** On-demand check for /clantag check <player>. Does a fresh poll. */
