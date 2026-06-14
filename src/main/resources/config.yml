@@ -1,0 +1,36 @@
+discord:
+  # Put your Discord bot token here. Keep it OUT of version control; rotate if leaked.
+  bot-token: "YOUR_BOT_TOKEN_HERE"
+  # The guild the BOT is a member of — we list ITS members (must have Server Members Intent).
+  member-guild-id: "1515767191948103892"  # test = TestServer (bot lives here)
+  # The Server Tag to reward — matched against each member's primary_guild.identity_guild_id.
+  tag-guild-id: "523059903812599811"      # test = HYTL tag; prod = your own server id
+  poll-interval-seconds: 120              # how often to poll Discord
+  api-base: "https://discord.com/api/v10"
+  log-channel-id: "1515767193210458114"   # optional status logs in #general; "" = off
+  request-timeout-seconds: 15
+
+luckperms:
+  group: "clantag"
+  mode: "expiry"                # expiry (recommended, auto-removal) | explicit
+  temp-ttl-seconds: 600         # temp node lifetime (MUST be > poll-interval)
+  renew-before-seconds: 180     # only renew when remaining < this (minimizes writes)
+
+link:
+  source: "manual"              # manual (test) | limboauth (prod)
+  manual:                       # discordId -> minecraft name (CASE-SENSITIVE in offline mode)
+    "356101524486619148": "Regela"
+  limboauth:                    # used only when source: limboauth
+    # Point at the DB that holds LimboAuth's AUTH table and SocialAddon's SOCIAL table.
+    jdbc-url: "jdbc:mariadb://127.0.0.1:3306/limboauth"
+    username: "limboauth"
+    password: "***"
+    # Verified against real LimboAuth 1.1.14 + SocialAddon 1.0.11 schema:
+    #   AUTH(NICKNAME, LOWERCASENICKNAME, UUID, ...)   SOCIAL(LOWERCASENICKNAME, DISCORD_ID, ...)
+    # SOCIAL only stores the lowercase nick, so JOIN AUTH to recover the proper-case NICKNAME
+    # (offline UUIDs are case-sensitive). Must return two columns: (nickname, discord_id).
+    query: "SELECT a.NICKNAME, s.DISCORD_ID FROM SOCIAL s JOIN AUTH a ON s.LOWERCASENICKNAME = a.LOWERCASENICKNAME WHERE s.DISCORD_ID IS NOT NULL"
+    cache-refresh-seconds: 1800 # refresh link cache every 30 min, NOT every poll
+
+logging:
+  debug: false

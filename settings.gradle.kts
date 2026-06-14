@@ -1,0 +1,1 @@
+rootProject.name = "clantag-perks"
