@@ -2,12 +2,12 @@ discord:
   # Put your Discord bot token here. Keep it OUT of version control; rotate if leaked.
   bot-token: "YOUR_BOT_TOKEN_HERE"
   # The guild the BOT is a member of — we list ITS members (must have Server Members Intent).
-  member-guild-id: "1515767191948103892"  # test = TestServer (bot lives here)
+  member-guild-id: "000000000000000000"   # id of the guild your bot is in
   # The Server Tag to reward — matched against each member's primary_guild.identity_guild_id.
-  tag-guild-id: "523059903812599811"      # test = HYTL tag; prod = your own server id
+  tag-guild-id: "000000000000000000"      # id of the server whose Server Tag grants the perk
   poll-interval-seconds: 120              # how often to poll Discord
   api-base: "https://discord.com/api/v10"
-  log-channel-id: "1515767193210458114"   # channel for status posts (see notifications: section)
+  log-channel-id: ""                      # channel id for status posts (see notifications:); "" = off
   request-timeout-seconds: 15
 
 luckperms:
@@ -19,7 +19,7 @@ luckperms:
 link:
   source: "manual"              # manual (test) | limboauth (prod)
   manual:                       # discordId -> minecraft name (CASE-SENSITIVE in offline mode)
-    "356101524486619148": "Regela"
+    "123456789012345678": "ExamplePlayer"
   limboauth:                    # used only when source: limboauth
     # Point at the DB that holds LimboAuth's AUTH table and SocialAddon's SOCIAL table.
     jdbc-url: "jdbc:mariadb://127.0.0.1:3306/limboauth"

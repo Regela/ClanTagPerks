@@ -5,18 +5,34 @@ Velocity plugin that grants a LuckPerms group to a player while they wear your D
 (`GET /guilds/{id}/members` → `primary_guild`), maps Discord → Minecraft, and applies a
 short-lived (temp) LuckPerms node with the minimum number of DB writes.
 
+## Requirements
+
+- A **Velocity** proxy with **LuckPerms** installed (it's a hard dependency).
+- A Discord bot with the **Server Members Intent** enabled, added to the guild it should read.
+- For `link.source: limboauth`: **LimboAuth + SocialAddon** writing to a SQL database the proxy
+  can reach.
+- **JDK 21** to build.
+
+> On Minecraft 1.21.4 use a Velocity build that LimboAPI supports (3.5.0 line); see the
+> compatibility note under [limboauth](#limboauth-production-link-mode).
+
 ## Build
 
-JDK 21 required. From the project root:
-
 ```bash
-JAVA_HOME=$HOME/.jdks/azul-21.0.8 ./gradlew shadowJar
+./gradlew shadowJar
 # -> build/libs/clantag-perks-1.0.0.jar
 ```
 
-The shadow jar bundles only the MariaDB JDBC driver (relocated to
-`me.regela.clantagperks.libs.mariadb`); `gson` and `snakeyaml` are provided by Velocity at
-runtime and are NOT shaded. Drop the jar into `velocity/plugins/` and restart the proxy.
+(Requires JDK 21; the Gradle toolchain targets 21.) The shadow jar bundles only the MariaDB JDBC
+driver (relocated to `me.regela.clantagperks.libs.mariadb`); `gson` and `snakeyaml` are provided by
+Velocity at runtime and are NOT shaded.
+
+## Install
+
+1. Drop `clantag-perks-1.0.0.jar` into your proxy's `plugins/` folder and start once to generate
+   `plugins/clantagperks/config.yml`.
+2. Create the reward group in LuckPerms (e.g. `/lpv creategroup clantag` and give it a prefix/perms).
+3. Edit the config (bot token, guild ids, group, link source) and run `/clantag reload`.
 
 ## Configuration (`plugins/clantagperks/config.yml`)
 
@@ -95,23 +111,31 @@ Transitions are always written to the server log regardless of these settings.
 On startup/reload the plugin also warns if the configured `luckperms.group` doesn't exist (otherwise
 the granted node would resolve to nothing on the backend).
 
-## Verified end-to-end (test rig on this host)
+## How it works
 
-Velocity `:25577` + Paper 1.21.4 `:25566`, LuckPerms 5.5.55 on shared MariaDB, `pluginmsg`
-sync. Test config: `member-guild-id=1515767191948103892`, `tag-guild-id=523059903812599811`
-(HYTL), `link.source=manual` (`356101524486619148 -> Regela`).
+Each cycle (`poll-interval-seconds`):
 
-1. Plugin enables: `ClanTagPerks enabled, poll=…s, mode=expiry, source=manual`.
-2. Poll detects wearer: `cycle ok: wearing=1, linked=1`.
-3. Player `Regela` joins → next poll grants temp `group.clantag`; node appears on **both**
-   proxy and Paper backend (shared storage + sync); backend resolves prefix `[HYTL] `.
-4. Tag removed (simulated) → plugin stops renewing → node expires → perk gone on both sides.
-5. Tag restored → node re-granted on the next cycle.
+1. Fetch members of `member-guild-id` from Discord, keeping those whose `primary_guild` matches
+   `tag-guild-id` with `identity_enabled == true` — the tag wearers.
+2. Resolve each wearer's Discord id to a Minecraft name (manual map or limboauth cache) and to a
+   UUID via LuckPerms.
+3. Grant a temporary `group.<group>` node, re-writing it only when it's missing or within
+   `renew-before-seconds` of expiry (so most cycles write nothing).
+4. When a wearer drops the tag: `expiry` mode lets the temp node lapse on its own; `explicit` mode
+   removes it on the next cycle.
 
-## Production switch-over
+If Discord is unreachable or rate-limited, the cycle is skipped and permissions are left untouched
+(in `expiry` mode they self-heal). With shared LuckPerms storage + a messaging service
+(`pluginmsg`/`sql`/redis), the group propagates to backend servers automatically.
 
-1. Own Server Tag for the live server → `tag-guild-id` = live server id; `member-guild-id` =
-   the guild your bot is in.
-2. Reset the bot token (Developer Portal → Bot → Reset Token); put it in config, not git.
-3. `link.source: limboauth` and verify the SocialAddon schema/query.
+## Going to production
+
+1. Use your live server's Server Tag id as `tag-guild-id`; `member-guild-id` is the guild your bot
+   is in.
+2. Keep the bot token out of version control (rotate it if it ever leaks).
+3. Switch to `link.source: limboauth` and confirm your SocialAddon/LimboAuth schema matches the query.
 4. Ensure LuckPerms storage is shared between the proxy and all backends.
+
+## License
+
+[MIT](LICENSE)
