@@ -11,7 +11,7 @@ import java.util.Map;
 import java.util.Properties;
 
 /**
- * Resolves Discord user id -> Minecraft name.
+ * Resolves Discord user id -> Minecraft name (and back).
  *
  * <ul>
  *   <li>{@code manual}: in-memory map from config, zero DB access.</li>
@@ -24,42 +24,50 @@ public final class LinkResolver {
     private final Config cfg;
     private final Logger log;
 
-    private volatile Map<String, String> cache = Collections.emptyMap();
+    private volatile Map<String, String> cache = Collections.emptyMap();       // discordId -> name
+    private volatile Map<String, String> reverse = Collections.emptyMap();     // name -> discordId
     private volatile long lastRefreshEpoch = 0;
 
     public LinkResolver(Config cfg, Logger log) {
         this.cfg = cfg;
         this.log = log;
-        if (cfg.linkSource.equals("manual")) {
-            this.cache = cfg.manualMap;
+        if (cfg.link.source == LinkSource.MANUAL) {
+            this.cache = cfg.link.manual;
+            this.reverse = buildReverse(cfg.link.manual);
         }
     }
 
-    /** discordId -> mc name (or null). Refreshes the limboauth cache lazily when stale. */
+    /** discordId -> mc name. Refreshes the limboauth cache lazily when stale. */
     public Map<String, String> get() {
-        if (cfg.linkSource.equals("manual")) {
-            return cfg.manualMap;
+        if (cfg.link.source == LinkSource.MANUAL) {
+            return cfg.link.manual;
         }
         long now = System.currentTimeMillis() / 1000L;
-        if (now - lastRefreshEpoch >= cfg.cacheRefreshSeconds) {
+        if (now - lastRefreshEpoch >= cfg.link.limboauth.cacheRefreshSeconds) {
             refresh();
         }
         return cache;
     }
 
+    /** Reverse lookup: Minecraft name -> Discord id (or null). Ensures the cache is fresh first. */
+    public String discordIdForName(String name) {
+        get(); // trigger lazy refresh in limboauth mode
+        return reverse.get(name);
+    }
+
     /** Forces a reload of the limboauth cache (used by /clantag reload and lazily by {@link #get}). */
     public synchronized void refresh() {
-        if (!cfg.linkSource.equals("limboauth")) return;
+        if (cfg.link.source != LinkSource.LIMBOAUTH) return;
         Map<String, String> fresh = new HashMap<>();
         Properties props = new Properties();
-        props.put("user", cfg.dbUsername);
-        props.put("password", cfg.dbPassword);
+        props.put("user", cfg.link.limboauth.username);
+        props.put("password", cfg.link.limboauth.password);
         try {
             // Instantiate the (shaded, relocated) driver directly to bypass the DriverManager
             // service-loader classloader limitation inside plugin classloaders.
             org.mariadb.jdbc.Driver driver = new org.mariadb.jdbc.Driver();
-            try (Connection conn = driver.connect(cfg.jdbcUrl, props);
-                 PreparedStatement ps = conn.prepareStatement(cfg.linkQuery);
+            try (Connection conn = driver.connect(cfg.link.limboauth.jdbcUrl, props);
+                 PreparedStatement ps = conn.prepareStatement(cfg.link.limboauth.query);
                  ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     String name = rs.getString(1);     // NICKNAME
@@ -70,17 +78,26 @@ public final class LinkResolver {
                 }
             }
             this.cache = Collections.unmodifiableMap(fresh);
+            this.reverse = buildReverse(fresh);
             this.lastRefreshEpoch = System.currentTimeMillis() / 1000L;
             log.info("[ClanTagPerks] limboauth link cache refreshed: {} links", fresh.size());
         } catch (Exception e) {
             log.warn("[ClanTagPerks] limboauth cache refresh failed ({}: {}); keeping previous cache",
                     e.getClass().getSimpleName(), e.getMessage());
-            if (cfg.debug) log.warn("[ClanTagPerks] limboauth stacktrace", e);
+            if (cfg.logging.debug) log.warn("[ClanTagPerks] limboauth stacktrace", e);
             // Keep the stale cache rather than wiping links on a transient DB hiccup.
         }
     }
 
     public int size() {
         return get().size();
+    }
+
+    private static Map<String, String> buildReverse(Map<String, String> forward) {
+        Map<String, String> rev = new HashMap<>(forward.size());
+        for (Map.Entry<String, String> e : forward.entrySet()) {
+            rev.put(e.getValue(), e.getKey()); // name -> discordId (last wins on duplicate names)
+        }
+        return Collections.unmodifiableMap(rev);
     }
 }

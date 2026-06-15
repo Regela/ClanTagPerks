@@ -33,7 +33,7 @@ public final class ClanTagPerks {
     private LuckPerms luckPerms;
     private volatile Config config;
     private volatile PollTask pollTask;
-    private ScheduledTask scheduledTask;
+    private volatile ScheduledTask scheduledTask;
 
     @Inject
     public ClanTagPerks(ProxyServer server, Logger logger, @DataDirectory Path dataDir) {
@@ -62,12 +62,12 @@ public final class ClanTagPerks {
         cm.register(meta, new CommandHandler(this));
 
         logger.info("[ClanTagPerks] enabled, poll={}s, mode={}, source={}",
-                config.pollIntervalSeconds, config.mode, config.linkSource);
-        if (config.notifyOnStartup) {
-            pollTask.announce(config.msgStartup
-                    .replace("{poll}", String.valueOf(config.pollIntervalSeconds))
-                    .replace("{mode}", config.mode)
-                    .replace("{source}", config.linkSource));
+                config.discord.pollIntervalSeconds, config.luckperms.mode, config.link.source);
+        if (config.notifications.onStartup) {
+            pollTask.announce(config.notifications.messages.startup
+                    .replace("{poll}", String.valueOf(config.discord.pollIntervalSeconds))
+                    .replace("{mode}", config.luckperms.mode.name().toLowerCase())
+                    .replace("{source}", config.link.source.name().toLowerCase()));
         }
     }
 
@@ -77,19 +77,27 @@ public final class ClanTagPerks {
 
         DiscordPoller poller = new DiscordPoller(cfg, logger);
         LinkResolver links = new LinkResolver(cfg, logger);
-        if (cfg.linkSource.equals("limboauth")) links.refresh();
+        if (cfg.link.source == LinkSource.LIMBOAUTH) links.refresh();
         PermissionApplier applier = new PermissionApplier(luckPerms, cfg, logger);
         PollTask task = new PollTask(cfg, logger, poller, links, applier);
 
         // Warn loudly if the configured group doesn't exist — otherwise we'd silently grant a
         // group node that resolves to nothing on the backend.
         try {
-            if (luckPerms.getGroupManager().loadGroup(cfg.group).join().isEmpty()) {
+            if (luckPerms.getGroupManager().loadGroup(cfg.luckperms.group).join().isEmpty()) {
                 logger.warn("[ClanTagPerks] LuckPerms group '{}' does not exist — create it with "
-                        + "'/lp creategroup {}' or the perk will have no effect.", cfg.group, cfg.group);
+                        + "'/lp creategroup {}' or the perk will have no effect.",
+                        cfg.luckperms.group, cfg.luckperms.group);
             }
         } catch (Exception e) {
-            logger.warn("[ClanTagPerks] could not verify group '{}': {}", cfg.group, e.getMessage());
+            logger.warn("[ClanTagPerks] could not verify group '{}': {}", cfg.luckperms.group, e.getMessage());
+        }
+
+        // Explicit mode only tracks grants made in THIS run; perks granted before a restart are not
+        // re-checked and so never lapse. expiry mode self-heals — prefer it unless you need diff-removal.
+        if (cfg.luckperms.mode == Mode.EXPLICIT) {
+            logger.warn("[ClanTagPerks] mode=explicit does not track grants from before a restart — "
+                    + "those will not be removed automatically; 'expiry' mode is recommended.");
         }
 
         if (scheduledTask != null) scheduledTask.cancel();
@@ -98,7 +106,7 @@ public final class ClanTagPerks {
         this.scheduledTask = server.getScheduler()
                 .buildTask(this, task)
                 .delay(5, TimeUnit.SECONDS)                       // let LuckPerms settle first
-                .repeat(cfg.pollIntervalSeconds, TimeUnit.SECONDS)
+                .repeat(cfg.discord.pollIntervalSeconds, TimeUnit.SECONDS)
                 .schedule();
     }
 

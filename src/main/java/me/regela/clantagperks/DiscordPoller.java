@@ -1,10 +1,11 @@
 package me.regela.clantagperks;
 
-import com.google.gson.stream.JsonReader;
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
+import com.google.gson.annotations.SerializedName;
 import org.slf4j.Logger;
 
 import java.io.IOException;
-import java.io.StringReader;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -15,7 +16,8 @@ import java.util.Set;
 
 /**
  * Polls Discord for guild members and returns the set of Discord user ids currently wearing the
- * target Server Tag. Streams the JSON (constant memory), paginates, and respects rate limits.
+ * target Server Tag. The response is mapped to typed DTOs by Gson (no hand-rolled JSON walking),
+ * paginated, and rate-limit aware.
  *
  * <p>Runs inside Velocity's async scheduler pool (never a netty thread), so the blocking
  * {@link HttpClient#send} calls here do not affect the proxy or any backend tick.
@@ -24,17 +26,19 @@ public final class DiscordPoller {
 
     private static final int PAGE_LIMIT = 1000;
     private static final int MAX_429_RETRIES = 5;
+    private static final String USER_AGENT = "ClanTagPerks (https://github.com/regela, 1.0.0)";
+    private static final Gson GSON = new Gson();
 
     private final Config cfg;
     private final Logger log;
     private final HttpClient http;
+    private final Duration timeout;
 
     public DiscordPoller(Config cfg, Logger log) {
         this.cfg = cfg;
         this.log = log;
-        this.http = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(cfg.requestTimeoutSeconds))
-                .build();
+        this.timeout = Duration.ofSeconds(cfg.discord.requestTimeoutSeconds);
+        this.http = HttpClient.newBuilder().connectTimeout(timeout).build();
     }
 
     /**
@@ -46,38 +50,37 @@ public final class DiscordPoller {
         String after = "0";
         try {
             while (true) {
-                String url = cfg.apiBase + "/guilds/" + cfg.memberGuildId
+                String url = cfg.discord.apiBase + "/guilds/" + cfg.discord.memberGuildId
                         + "/members?limit=" + PAGE_LIMIT + "&after=" + after;
                 HttpResponse<String> resp = requestWithRetry(url);
                 if (resp == null) return null;
                 if (resp.statusCode() / 100 != 2) {
                     log.warn("[ClanTagPerks] Discord returned {} for {} — skipping cycle",
-                            resp.statusCode(), maskUrl(url));
+                            resp.statusCode(), url);
                     return null;
                 }
-                int count = parsePage(resp.body(), wearers);
-                String last = lastUserId(resp.body());
-                if (count < PAGE_LIMIT || last == null) break; // last page
-                after = last;
+                Page page = parseMembersPage(resp.body(), cfg.discord.tagGuildId, wearers);
+                if (page.count() < PAGE_LIMIT || page.lastId() == null) break; // last page
+                after = page.lastId();
             }
             return wearers;
         } catch (Exception e) {
             log.warn("[ClanTagPerks] poll failed ({}: {}) — skipping cycle, permissions untouched",
                     e.getClass().getSimpleName(), e.getMessage());
-            if (cfg.debug) log.warn("[ClanTagPerks] poll stacktrace", e);
+            if (cfg.logging.debug) log.warn("[ClanTagPerks] poll stacktrace", e);
             return null;
         }
     }
 
     private HttpResponse<String> requestWithRetry(String url) throws IOException, InterruptedException {
+        HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+                .header("Authorization", "Bot " + cfg.discord.botToken)
+                .header("User-Agent", USER_AGENT)
+                .timeout(timeout)
+                .GET()
+                .build();
         long backoffMs = 1000;
         for (int attempt = 0; attempt <= MAX_429_RETRIES; attempt++) {
-            HttpRequest req = HttpRequest.newBuilder(URI.create(url))
-                    .header("Authorization", "Bot " + cfg.botToken)
-                    .header("User-Agent", "ClanTagPerks (https://github.com/regela, 1.0.0)")
-                    .timeout(Duration.ofSeconds(cfg.requestTimeoutSeconds))
-                    .GET()
-                    .build();
             HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
 
             if (resp.statusCode() == 429 || resp.statusCode() / 100 == 5) {
@@ -90,7 +93,7 @@ public final class DiscordPoller {
                 backoffMs = Math.min(backoffMs * 2, 30_000);
                 continue;
             }
-            if (cfg.debug) {
+            if (cfg.logging.debug) {
                 resp.headers().firstValue("X-RateLimit-Remaining").ifPresent(r ->
                         log.info("[ClanTagPerks] rate-limit remaining: {}", r));
             }
@@ -100,107 +103,65 @@ public final class DiscordPoller {
         return null;
     }
 
-    /** Streams the array, adding wearer ids to {@code out}. Returns number of members in the page. */
-    private int parsePage(String body, Set<String> out) throws IOException {
-        int members = 0;
-        try (JsonReader r = new JsonReader(new StringReader(body))) {
-            r.beginArray();
-            while (r.hasNext()) {
-                members++;
-                String id = null;
-                boolean wearing = false;
-                r.beginObject();                 // member
-                while (r.hasNext()) {
-                    if (!"user".equals(r.nextName())) { r.skipValue(); continue; }
-                    r.beginObject();             // user
-                    while (r.hasNext()) {
-                        switch (r.nextName()) {
-                            case "id" -> id = r.nextString();
-                            case "primary_guild" -> wearing = parsePrimaryGuild(r);
-                            default -> r.skipValue();
-                        }
-                    }
-                    r.endObject();
-                }
-                r.endObject();
-                if (wearing && id != null) out.add(id);
-            }
-            r.endArray();
-        }
-        return members;
-    }
+    /** One page of guild members. */
+    record Page(int count, String lastId) {}
 
-    /** Returns true iff the player wears OUR target tag. Consumes the primary_guild value. */
-    private boolean parsePrimaryGuild(JsonReader r) throws IOException {
-        if (r.peek() == com.google.gson.stream.JsonToken.NULL) { r.nextNull(); return false; }
-        boolean enabled = false;
-        String identityGuild = null;
-        r.beginObject();
-        while (r.hasNext()) {
-            switch (r.nextName()) {
-                case "identity_enabled" -> enabled = readBoolLenient(r);
-                case "identity_guild_id" -> identityGuild = readStringLenient(r);
-                default -> r.skipValue();
-            }
-        }
-        r.endObject();
-        return enabled && cfg.tagGuildId.equals(identityGuild);
-    }
-
-    private boolean readBoolLenient(JsonReader r) throws IOException {
-        if (r.peek() == com.google.gson.stream.JsonToken.NULL) { r.nextNull(); return false; }
-        return r.nextBoolean();
-    }
-
-    private String readStringLenient(JsonReader r) throws IOException {
-        if (r.peek() == com.google.gson.stream.JsonToken.NULL) { r.nextNull(); return null; }
-        return r.nextString();
-    }
-
-    /** Highest user id in the page (members are sorted ascending by id) for pagination. */
-    private String lastUserId(String body) throws IOException {
+    /**
+     * Maps a page of {@code GET /guilds/{id}/members} via Gson, adding tag-wearer ids to {@code out}.
+     * Package-private + static so it can be unit-tested without any HTTP.
+     */
+    static Page parseMembersPage(String body, String tagGuildId, Set<String> out) {
+        Member[] members = GSON.fromJson(body, Member[].class);
+        if (members == null || members.length == 0) return new Page(0, null);
         String last = null;
-        try (JsonReader r = new JsonReader(new StringReader(body))) {
-            r.beginArray();
-            while (r.hasNext()) {
-                r.beginObject();
-                while (r.hasNext()) {
-                    if (!"user".equals(r.nextName())) { r.skipValue(); continue; }
-                    r.beginObject();
-                    while (r.hasNext()) {
-                        if ("id".equals(r.nextName())) last = r.nextString();
-                        else r.skipValue();
-                    }
-                    r.endObject();
-                }
-                r.endObject();
-            }
-            r.endArray();
+        for (Member m : members) {
+            if (m == null || m.user == null || m.user.id == null) continue;
+            last = m.user.id; // members are sorted ascending by id; last non-null wins
+            if (isWearingTag(m.user, tagGuildId)) out.add(m.user.id);
         }
-        return last;
+        return new Page(members.length, last);
+    }
+
+    private static boolean isWearingTag(User user, String tagGuildId) {
+        PrimaryGuild pg = user.primaryGuild;
+        return pg != null && Boolean.TRUE.equals(pg.identityEnabled)
+                && tagGuildId.equals(pg.identityGuildId);
     }
 
     /** Optional: post a status line to the configured log channel. Best-effort, never throws. */
     public void postStatus(String message) {
-        if (!cfg.notifyEnabled) return;
-        if (cfg.logChannelId == null || cfg.logChannelId.isBlank()) return;
+        if (!cfg.notifications.enabled) return;
+        if (cfg.discord.logChannelId == null || cfg.discord.logChannelId.isBlank()) return;
         try {
-            String json = "{\"content\":\"" + message.replace("\\", "\\\\").replace("\"", "\\\"") + "\"}";
+            JsonObject body = new JsonObject();
+            body.addProperty("content", message);
             HttpRequest req = HttpRequest.newBuilder(
-                    URI.create(cfg.apiBase + "/channels/" + cfg.logChannelId + "/messages"))
-                    .header("Authorization", "Bot " + cfg.botToken)
+                    URI.create(cfg.discord.apiBase + "/channels/" + cfg.discord.logChannelId + "/messages"))
+                    .header("Authorization", "Bot " + cfg.discord.botToken)
                     .header("Content-Type", "application/json")
-                    .header("User-Agent", "ClanTagPerks (https://github.com/regela, 1.0.0)")
-                    .timeout(Duration.ofSeconds(cfg.requestTimeoutSeconds))
-                    .POST(HttpRequest.BodyPublishers.ofString(json))
+                    .header("User-Agent", USER_AGENT)
+                    .timeout(timeout)
+                    .POST(HttpRequest.BodyPublishers.ofString(GSON.toJson(body)))
                     .build();
             http.send(req, HttpResponse.BodyHandlers.discarding());
         } catch (Exception e) {
-            if (cfg.debug) log.warn("[ClanTagPerks] status post failed: {}", e.getMessage());
+            if (cfg.logging.debug) log.warn("[ClanTagPerks] status post failed: {}", e.getMessage());
         }
     }
 
-    private static String maskUrl(String url) {
-        return url; // url carries no secrets; token is in the header
+    // --- Discord REST DTOs (only the fields we read; Gson leaves the rest out) ---
+
+    private static final class Member {
+        User user;
+    }
+
+    private static final class User {
+        String id;
+        @SerializedName("primary_guild") PrimaryGuild primaryGuild;
+    }
+
+    private static final class PrimaryGuild {
+        @SerializedName("identity_enabled") Boolean identityEnabled;
+        @SerializedName("identity_guild_id") String identityGuildId;
     }
 }

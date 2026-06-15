@@ -1,77 +1,83 @@
 package me.regela.clantagperks;
 
+import org.spongepowered.configurate.objectmapping.ConfigSerializable;
+import org.spongepowered.configurate.objectmapping.meta.Setting;
+
+import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** Immutable snapshot of config.yml. Rebuilt on reload. */
+/**
+ * Typed snapshot of config.yml, bound by Configurate's {@code ObjectMapper} (no hand-rolled YAML
+ * navigation). Fields carry their defaults inline, so a partial config still loads. Rebuilt on reload;
+ * treated as immutable after {@link ConfigLoader#load} returns.
+ */
+@ConfigSerializable
 public final class Config {
-    // discord
-    public final String botToken;
-    public final String memberGuildId; // guild the BOT is in; we list ITS members
-    public final String tagGuildId;    // the Server Tag (primary_guild.identity_guild_id) we reward
-    public final int pollIntervalSeconds;
-    public final String apiBase;
-    public final String logChannelId;       // "" = disabled
-    public final int requestTimeoutSeconds;
 
-    // luckperms
-    public final String group;
-    public final String mode;               // "expiry" | "explicit"
-    public final int tempTtlSeconds;
-    public final int renewBeforeSeconds;
+    @Setting("discord") public Discord discord = new Discord();
+    @Setting("luckperms") public LuckPerms luckperms = new LuckPerms();
+    @Setting("link") public Link link = new Link();
+    @Setting("notifications") public Notifications notifications = new Notifications();
+    @Setting("logging") public Logging logging = new Logging();
 
-    // link
-    public final String linkSource;         // "manual" | "limboauth"
-    public final Map<String, String> manualMap; // discordId -> mc name
-    public final String jdbcUrl;
-    public final String dbUsername;
-    public final String dbPassword;
-    public final String linkQuery;
-    public final int cacheRefreshSeconds;
+    @ConfigSerializable
+    public static final class Discord {
+        @Setting("bot-token") public String botToken = "";
+        /** Guild the BOT is in; we list ITS members. */
+        @Setting("member-guild-id") public String memberGuildId = "";
+        /** The Server Tag (primary_guild.identity_guild_id) we reward. */
+        @Setting("tag-guild-id") public String tagGuildId = "";
+        @Setting("poll-interval-seconds") public int pollIntervalSeconds = 120;
+        @Setting("api-base") public String apiBase = "https://discord.com/api/v10";
+        /** "" = disabled. */
+        @Setting("log-channel-id") public String logChannelId = "";
+        @Setting("request-timeout-seconds") public int requestTimeoutSeconds = 15;
+    }
 
-    // notifications (Discord log-channel posts)
-    public final boolean notifyEnabled;
-    public final boolean notifyOnStartup;
-    public final boolean notifyOnEarn;
-    public final boolean notifyOnLost;
-    public final String msgStartup;
-    public final String msgEarned;
-    public final String msgLost;
+    @ConfigSerializable
+    public static final class LuckPerms {
+        @Setting("group") public String group = "clantag";
+        @Setting("mode") public Mode mode = Mode.EXPIRY;
+        @Setting("temp-ttl-seconds") public int tempTtlSeconds = 600;
+        @Setting("renew-before-seconds") public int renewBeforeSeconds = 180;
+    }
 
-    // logging
-    public final boolean debug;
+    @ConfigSerializable
+    public static final class Link {
+        @Setting("source") public LinkSource source = LinkSource.MANUAL;
+        /** discordId -> minecraft name. */
+        @Setting("manual") public Map<String, String> manual = new LinkedHashMap<>();
+        @Setting("limboauth") public LimboAuth limboauth = new LimboAuth();
+    }
 
-    Config(String botToken, String memberGuildId, String tagGuildId, int pollIntervalSeconds, String apiBase,
-           String logChannelId, int requestTimeoutSeconds, String group, String mode,
-           int tempTtlSeconds, int renewBeforeSeconds, String linkSource,
-           Map<String, String> manualMap, String jdbcUrl, String dbUsername, String dbPassword,
-           String linkQuery, int cacheRefreshSeconds,
-           boolean notifyEnabled, boolean notifyOnStartup, boolean notifyOnEarn, boolean notifyOnLost,
-           String msgStartup, String msgEarned, String msgLost, boolean debug) {
-        this.botToken = botToken;
-        this.memberGuildId = memberGuildId;
-        this.tagGuildId = tagGuildId;
-        this.pollIntervalSeconds = pollIntervalSeconds;
-        this.apiBase = apiBase;
-        this.logChannelId = logChannelId;
-        this.requestTimeoutSeconds = requestTimeoutSeconds;
-        this.group = group;
-        this.mode = mode;
-        this.tempTtlSeconds = tempTtlSeconds;
-        this.renewBeforeSeconds = renewBeforeSeconds;
-        this.linkSource = linkSource;
-        this.manualMap = manualMap;
-        this.jdbcUrl = jdbcUrl;
-        this.dbUsername = dbUsername;
-        this.dbPassword = dbPassword;
-        this.linkQuery = linkQuery;
-        this.cacheRefreshSeconds = cacheRefreshSeconds;
-        this.notifyEnabled = notifyEnabled;
-        this.notifyOnStartup = notifyOnStartup;
-        this.notifyOnEarn = notifyOnEarn;
-        this.notifyOnLost = notifyOnLost;
-        this.msgStartup = msgStartup;
-        this.msgEarned = msgEarned;
-        this.msgLost = msgLost;
-        this.debug = debug;
+    @ConfigSerializable
+    public static final class LimboAuth {
+        @Setting("jdbc-url") public String jdbcUrl = "";
+        @Setting("username") public String username = "";
+        @Setting("password") public String password = "";
+        @Setting("query") public String query = "";
+        @Setting("cache-refresh-seconds") public int cacheRefreshSeconds = 1800;
+    }
+
+    @ConfigSerializable
+    public static final class Notifications {
+        @Setting("enabled") public boolean enabled = false;
+        @Setting("on-startup") public boolean onStartup = true;
+        @Setting("on-earn") public boolean onEarn = true;
+        @Setting("on-lost") public boolean onLost = true;
+        @Setting("messages") public Messages messages = new Messages();
+    }
+
+    @ConfigSerializable
+    public static final class Messages {
+        @Setting("startup") public String startup =
+                "ClanTagPerks enabled — poll={poll}s, mode={mode}, source={source}";
+        @Setting("earned") public String earned = "✅ earned `{group}`: {players}";
+        @Setting("lost") public String lost = "➖ lost `{group}`: {players}";
+    }
+
+    @ConfigSerializable
+    public static final class Logging {
+        @Setting("debug") public boolean debug = false;
     }
 }
